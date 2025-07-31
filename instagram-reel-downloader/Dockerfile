@@ -21,7 +21,7 @@ EXPOSE 8080
 
 # Specify the command to run on container startup
 # Use Gunicorn as the WSGI server for production
-# -w 4: 4 worker processes
+# -w 2: 2 worker processes
 # -b 0.0.0.0:$PORT: bind to all network interfaces on the specified port
 # --timeout 300: 5-minute timeout for workers
 CMD ["gunicorn", "-w", "2", "--timeout", "300", "-b", "0.0.0.0:8080", "app:app"]
