@@ -4,13 +4,16 @@ import uuid
 import subprocess
 import tempfile
 import logging
+import base64
 from functools import wraps
 from flask import Flask, request, jsonify, send_file
 
 # --- Configuration (ENV) ---
 PORT = int(os.environ.get("PORT", 8080))
 API_KEY = os.environ.get("API_KEY")
-COOKIES_PATH = os.environ.get("COOKIES_PATH")
+# Setze einen Standardpfad für die Cookie-Datei, falls nicht anders angegeben
+COOKIES_PATH = os.environ.get("COOKIES_PATH", "/tmp/cookies.txt")
+COOKIES_B64 = os.environ.get("COOKIES_B64") # Neue Variable für Base64-Cookie
 
 # Bevorzuge kombinierten Download: best video + best audio; kein Audio-only Fallback hier.
 YTDLP_FORMAT = os.environ.get("YTDLP_FORMAT", "bv*+ba")
@@ -24,6 +27,23 @@ YTDLP_FALLBACK_FORMAT = os.environ.get("YTDLP_FALLBACK_FORMAT", "b")
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# --- Startup Logic: Cookie-Datei erstellen (NEUER ABSCHNITT) ---
+def setup_cookies_from_env():
+    """
+    Prüft, ob COOKIES_B64 existiert, dekodiert es
+    und schreibt den Inhalt in die COOKIES_PATH-Datei.
+    """
+    if COOKIES_B64:
+        try:
+            logger.info(f"Found COOKIES_B64 env var, decoding to {COOKIES_PATH}")
+            decoded_cookies = base64.b64decode(COOKIES_B64)
+            with open(COOKIES_PATH, "w") as f:
+                f.write(decoded_cookies.decode("utf-8"))
+        except Exception as e:
+            logger.error(f"Failed to decode and write cookies: {e}")
+
+setup_cookies_from_env() # Diese Funktion direkt beim Start ausführen
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
