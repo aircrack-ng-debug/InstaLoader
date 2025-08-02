@@ -11,9 +11,8 @@ from flask import Flask, request, jsonify, send_file
 # --- Configuration (ENV) ---
 PORT = int(os.environ.get("PORT", 8080))
 API_KEY = os.environ.get("API_KEY")
-# Setze einen Standardpfad für die Cookie-Datei, falls nicht anders angegeben
 COOKIES_PATH = os.environ.get("COOKIES_PATH", "/tmp/cookies.txt")
-COOKIES_B64 = os.environ.get("COOKIES_B64") # Neue Variable für Base64-Cookie
+COOKIES_B64 = os.environ.get("COOKIES_B64")
 
 # Bevorzuge kombinierten Download: best video + best audio; kein Audio-only Fallback hier.
 YTDLP_FORMAT = os.environ.get("YTDLP_FORMAT", "bv*+ba")
@@ -28,7 +27,8 @@ YTDLP_FALLBACK_FORMAT = os.environ.get("YTDLP_FALLBACK_FORMAT", "b")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# --- Startup Logic: Cookie-Datei erstellen (NEUER ABSCHNITT) ---
+
+# --- Startup Logic: Cookie-Datei erstellen ---
 def setup_cookies_from_env():
     """
     Prüft, ob COOKIES_B64 existiert, dekodiert es
@@ -43,10 +43,12 @@ def setup_cookies_from_env():
         except Exception as e:
             logger.error(f"Failed to decode and write cookies: {e}")
 
-setup_cookies_from_env() # Diese Funktion direkt beim Start ausführen
+
+setup_cookies_from_env()
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
+
 
 # --- Helpers ---
 def require_api_key(f):
@@ -54,6 +56,7 @@ def require_api_key(f):
     Optionaler API-Key-Schutz.
     Erwartet 'Authorization: Bearer <API_KEY>' wenn API_KEY gesetzt ist.
     """
+
     @wraps(f)
     def decorated(*args, **kwargs):
         if API_KEY:
@@ -64,13 +67,16 @@ def require_api_key(f):
             if provided_key != API_KEY:
                 return jsonify({"error": "Invalid API key"}), 403
         return f(*args, **kwargs)
+
     return decorated
+
 
 def is_instagram_url(u: str) -> bool:
     try:
         return ("instagram.com" in u) and ("/reel/" in u or "/p/" in u)
     except Exception:
         return False
+
 
 def build_ytdlp_cmd(url: str, fmt: str, out_template: str) -> list[str]:
     cmd = [
@@ -93,6 +99,7 @@ def build_ytdlp_cmd(url: str, fmt: str, out_template: str) -> list[str]:
         logger.warning(f"Cookies file specified but not found at {COOKIES_PATH}")
     return cmd
 
+
 def pick_output_file(tmpdir: str) -> str:
     """
     Wähle die beste erzeugte Datei:
@@ -109,6 +116,7 @@ def pick_output_file(tmpdir: str) -> str:
         candidates.sort(key=lambda p: os.path.getsize(p), reverse=True)
         return candidates[0]
     return ""
+
 
 def guess_mimetype(path: str) -> tuple[str, str]:
     """
@@ -128,10 +136,12 @@ def guess_mimetype(path: str) -> tuple[str, str]:
         return "audio/mpeg", f"{base}.mp3"
     return "application/octet-stream", os.path.basename(path)
 
+
 # --- Endpoints ---
 @app.route("/healthz", methods=["GET"])
 def health_check():
     return jsonify({"status": "ok"}), 200
+
 
 @app.route("/download", methods=["GET"])
 @require_api_key
@@ -148,13 +158,12 @@ def download_reel():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         output_template = os.path.join(temp_dir, "%(id)s.%(ext)s")
-
-        # 1) Primär: Erzwinge Video+Audio
-        primary_cmd = build_ytdlp_cmd(video_url, YTDLP_FORMAT, output_template)
-        logger.info(f"Executing command (primary): {' '.join(primary_cmd)}")
-
         process = None
+
         try:
+            # 1) Primär: Erzwinge Video+Audio
+            primary_cmd = build_ytdlp_cmd(video_url, YTDLP_FORMAT, output_template)
+            logger.info(f"Executing command (primary): {' '.join(primary_cmd)}")
             process = subprocess.run(
                 primary_cmd,
                 capture_output=True,
@@ -165,15 +174,25 @@ def download_reel():
         except subprocess.CalledProcessError as e:
             # 2) Fallback: best available (kann Audio-only sein)
             if YTDLP_FALLBACK_FORMAT:
+                logger.warning(f"Primary format failed, retrying with fallback '{YTDLP_FALLBACK_FORMAT}'")
                 fb_cmd = build_ytdlp_cmd(video_url, YTDLP_FALLBACK_FORMAT, output_template)
-                logger.warning(f"Primary format failed, retrying with fallback '{YTDLP_FALLBACK_FORMAT}': {' '.join(fb_cmd)}")
-                process = subprocess.run(
-                    fb_cmd,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=300,
-                )
+                logger.info(f"Executing command (fallback): {' '.join(fb_cmd)}")
+                try:
+                    process = subprocess.run(
+                        fb_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=300,
+                    )
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as fb_e:
+                    logger.error("yt-dlp fallback also failed.")
+                    return jsonify({
+                        "error": "Failed to download video after fallback.",
+                        "url": video_url,
+                        "stdout": fb_e.stdout if hasattr(fb_e, "stdout") else "",
+                        "stderr": fb_e.stderr if hasattr(fb_e, "stderr") else ""
+                    }), 500
             else:
                 logger.error("yt-dlp failed (no fallback configured).")
                 return jsonify({
@@ -213,6 +232,7 @@ def download_reel():
             download_name=download_name,
             mimetype=mimetype,
         )
+
 
 if __name__ == "__main__":
     # Nur für lokalen Test – in Production via Gunicorn starten.
