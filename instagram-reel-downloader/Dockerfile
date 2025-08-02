@@ -21,4 +21,4 @@ EXPOSE 8080
 
 # Specify the command to run on container startup
 # Verwende Umgebungsvariablen für eine flexible Konfiguration
-CMD ["gunicorn", "-w", "2", "--timeout", "300", "-b", "0.0.0.0:$PORT", "app:app"]
+CMD gunicorn -w 2 --timeout 300 -b 0.0.0.0:$PORT app:app
